@@ -463,6 +463,9 @@ class GitHub:
             raise AuthError("La sesión de GitHub no es válida o expiró. Vuelve a conectar tu cuenta.")
         if status == 403 and headers.get("X-RateLimit-Remaining", headers.get("x-ratelimit-remaining")) == "0":
             raise GitHubError(status, "Se alcanzó el límite de uso de la API de GitHub. Prueba en unos minutos.")
+        if status == 403 and method != "GET" and "/repos/" in path:
+            raise GitHubError(status, "El token no tiene permiso para escribir en el repositorio. En GitHub, "
+                                      "dale el permiso «Contents: Read and write». ({})".format(msg))
         if status in (403, 404) and "/repos/" in path and not path.endswith("/git/blobs"):
             raise GitHubError(status, msg or "Sin acceso al repositorio.")
         raise GitHubError(status, "GitHub respondió {}: {}".format(status, msg))
@@ -754,7 +757,15 @@ class SaveSync:
 
     def set_repo(self, full_name, device_name=None):
         store = RemoteStore(self.gh, full_name, self.home / "cache")
-        store.snapshot(refresh=True)
+        try:
+            store.snapshot(refresh=True)
+        except GitHubError as e:
+            if e.status in (403, 404):
+                raise SaveSyncError(
+                    "No se puede acceder a {} con este token. Si es un token «fine-grained», edítalo en GitHub "
+                    "y en «Repository access» agrega ese repositorio, con el permiso «Contents: Read and write». "
+                    "(Detalle de GitHub: {})".format(full_name, e))
+            raise
         self.config["repo"] = full_name
         if device_name:
             self.config["device_name"] = device_name.strip()

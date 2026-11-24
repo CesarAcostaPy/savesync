@@ -124,7 +124,7 @@ class H(BaseHTTPRequestHandler):
             if len(parts) >= 3 and parts[0] == "repos":
                 full = parts[1] + "/" + parts[2]
                 repo = REPOS.get(full)
-                if not repo:
+                if not repo or repo.get("noaccess"):
                     return self.send(404, {"message": "Not Found"})
                 rest = parts[3:]
                 if not rest:
@@ -229,4 +229,6 @@ class H(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8900
     new_repo("CesarAcostaPy/mis-partidas", private=True, auto_init=False)  # vacío, como uno recién creado
+    new_repo("CesarAcostaPy/sin-acceso", private=True, auto_init=True)
+    REPOS["CesarAcostaPy/sin-acceso"]["noaccess"] = True  # aparece en la lista pero el token no puede usarlo
     ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
