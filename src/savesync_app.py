@@ -165,9 +165,22 @@ class App:
         self.logs.append("{}  {}".format(time.strftime("%H:%M:%S"), msg))
         self.logs = self.logs[-400:]
 
-    def toast(self, msg, error=False):
-        self.page.show_dialog(ft.SnackBar(ft.Text(msg), bgcolor="#5A2323" if error else None,
-                                          duration=6000 if error else 3000))
+    def toast(self, msg, error=False, warn=False):
+        if error:
+            return self.show_error(msg)
+        self.page.show_dialog(ft.SnackBar(
+            ft.Text(msg, color="#1A1300" if warn else "#FFFFFF", weight=ft.FontWeight.W_500),
+            bgcolor="#F2B441" if warn else "#2A2F45", duration=5000 if warn else 3000))
+
+    def show_error(self, msg):
+        """Errores en una ventana legible, con opción de copiar el texto."""
+        self.log("ERROR " + str(msg))
+        self.dialog("Algo salió mal", ft.Container(ft.Column([
+            ft.Row([ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FF8A80", size=28),
+                    ft.Text(str(msg), selectable=True, color="#FFFFFF", size=15, expand=True)],
+                   vertical_alignment=ft.CrossAxisAlignment.START, spacing=12)], tight=True), width=520),
+            [ft.TextButton("Copiar", icon=ft.Icons.COPY, on_click=lambda e: self.page.run_task(self.copy, str(msg))),
+             ft.FilledButton("Cerrar", on_click=self.close_dialog)])
 
     def close_dialog(self, e=None):
         try:
@@ -199,8 +212,9 @@ class App:
             except core.SaveSyncError as e:
                 res, err = None, e
             except Exception as e:  # noqa
-                res, err = None, e
-                self.log("ERROR {}: {}".format(type(e).__name__, e))
+                import traceback
+                res, err = None, core.SaveSyncError("{}: {}".format(type(e).__name__, e))
+                self.log(traceback.format_exc())
             finally:
                 self.progress.visible = False
                 if self.busy_dialog is not None:
@@ -310,7 +324,7 @@ class App:
         def done(v):
             self.view = v
             if self.ss.store.offline:
-                self.toast("Sin conexión: se muestran los datos guardados.", True)
+                self.toast("Sin conexión: se muestran los datos guardados.", warn=True)
             self.render()
         self.run_bg(None, work, done, quiet=True)
 
@@ -400,7 +414,8 @@ class App:
 
         def choose(full):
             self.run_bg("Preparando {}…".format(full), lambda: self.ss.set_repo(full, dev.value),
-                        lambda st: (self.toast("Atención: ese repositorio es PÚBLICO" if st.private is False else "Listo"),
+                        lambda st: (self.toast("Atención: ese repositorio es PÚBLICO, cualquiera puede ver tus partidas"
+                                               if st.private is False else "Listo", warn=st.private is False),
                                     self.route()))
 
         def create(e):
