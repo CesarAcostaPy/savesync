@@ -1,6 +1,13 @@
-# Genera los ejecutables y publica una release cuando subes un tag "vX.Y.Z".
-#   git tag v1.2.0 && git push origin v1.2.0
-# También se puede lanzar a mano (Actions -> Release -> Run workflow) para probar los builds sin publicar.
+# Compila SaveSync para Windows, Linux / Steam Deck y Android, y publica una release
+# cuando subes un tag "vX.Y.Z":   git tag v2.0.0 && git push origin v2.0.0
+# También se puede lanzar a mano (Actions -> Release -> Run workflow) para probar sin publicar.
+#
+# Configuración opcional (Settings -> Secrets and variables -> Actions):
+#   Variable OAUTH_CLIENT_ID            -> activa el botón "Conectar con GitHub" (OAuth App con Device Flow)
+#   Secret   ANDROID_KEYSTORE_BASE64    -> firma estable del APK (para poder actualizar sin desinstalar)
+#   Secret   ANDROID_KEYSTORE_PASSWORD
+#   Secret   ANDROID_KEY_ALIAS
+#   Secret   ANDROID_KEY_PASSWORD
 name: Release
 
 on:
@@ -11,92 +18,172 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHON_VERSION: "3.12"
+  FLET_VERSION: "1.1.3"
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+  FLET_CLI_NO_RICH_OUTPUT: "1"
+
 jobs:
-  build:
-    name: Build ${{ matrix.asset }}
+  # -------------------------------------------------------------- apps (Flet)
+  app:
+    name: App ${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            asset: SaveSync-windows-x64.exe
-          # Ubuntu 22.04 = glibc antigua -> el binario funciona en Steam Deck y en casi cualquier Linux
-          - os: ubuntu-22.04
-            asset: SaveSync-linux-x86_64
+          - target: windows
+            os: windows-latest
+          - target: linux
+            os: ubuntu-22.04
+          - target: apk
+            os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Poner versión y repositorio
+      - name: Versión, repositorio y Client ID
         shell: bash
         run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0-dev"; fi
-          sed -i "s|^VERSION = .*|VERSION = \"$V\"|" savesync.py
-          sed -i "s|^RELEASES_REPO = .*|RELEASES_REPO = \"$GITHUB_REPOSITORY\"|" savesync.py
-          grep -E "^(VERSION|RELEASES_REPO) =" savesync.py
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0"; fi
+          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
+          F=src/savesync_core.py
+          sed -i "s|^VERSION = .*|VERSION = \"$V\"|" $F
+          sed -i "s|^RELEASES_REPO = .*|RELEASES_REPO = \"$GITHUB_REPOSITORY\"  # ci|" $F
+          sed -i "s|^OAUTH_CLIENT_ID = .*|OAUTH_CLIENT_ID = \"${{ vars.OAUTH_CLIENT_ID }}\"  # ci|" $F
+          sed -i "s|^version = .*|version = \"$V\"|" pyproject.toml
+          grep -E "^(VERSION|RELEASES_REPO|OAUTH_CLIENT_ID) =" $F
 
-      - name: Instalar PyInstaller
-        run: python -m pip install --upgrade pip pyinstaller
+      - name: Instalar Flet
+        shell: bash
+        run: python -m pip install --upgrade pip "flet[all]==${FLET_VERSION}"
+
+      - name: Dependencias de Linux
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          LINUX_DEPS="$(flet --version --json | jq -r '.linux_dependencies | join(" ")')"
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+
+      - name: Java para Android
+        if: matrix.target == 'apk'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Firma del APK
+        if: matrix.target == 'apk'
+        shell: bash
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$KS" ]]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "SIGN_ARGS=--android-signing-key-store $RUNNER_TEMP/upload.jks --android-signing-key-store-password $KS_PASS --android-signing-key-alias $KEY_ALIAS --android-signing-key-password ${KEY_PASS:-$KS_PASS}" >> "$GITHUB_ENV"
+            echo "APK firmado con tu keystore."
+          else
+            echo "SIGN_ARGS=" >> "$GITHUB_ENV"
+            echo "::warning::Sin keystore: el APK se firma con una clave de depuración."
+          fi
 
       - name: Compilar
         shell: bash
         run: |
-          ICON=()
-          if [[ "$RUNNER_OS" == "Windows" ]]; then ICON=(--icon assets/icon.ico); fi
-          pyinstaller --onefile --noconfirm --clean --name SaveSync "${ICON[@]}" \
-            --hidden-import savesync_detect --hidden-import savesync_gui savesync.py
-          mkdir -p out
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            cp dist/SaveSync.exe "out/${{ matrix.asset }}"
-          else
-            cp dist/SaveSync "out/${{ matrix.asset }}"
-            chmod +x "out/${{ matrix.asset }}"
-          fi
+          EXTRA=""
+          if [[ "${{ matrix.target }}" == "apk" ]]; then EXTRA="--arch arm64-v8a $SIGN_ARGS"; fi
+          flet build ${{ matrix.target }} --yes --skip-flutter-doctor --no-rich-output -v \
+            --build-version "$APP_VERSION" $EXTRA
 
-      - name: Probar el ejecutable
+      - name: Empaquetar
         shell: bash
         run: |
-          "./out/${{ matrix.asset }}" --help
-          SAVESYNC_HOME="$RUNNER_TEMP/ss" "./out/${{ matrix.asset }}" info
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset }}
-          path: out/*
-
-  package:
-    name: Paquete Python / Termux e instaladores
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Armar paquetes
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0-dev"; fi
-          sed -i "s|^VERSION = .*|VERSION = \"$V\"|" savesync.py
-          sed -i "s|^RELEASES_REPO = .*|RELEASES_REPO = \"$GITHUB_REPOSITORY\"|" savesync.py
-          mkdir -p out pkg/SaveSync
-          cp savesync.py savesync_detect.py savesync_gui.py savesync.bat savesync.sh README.md pkg/SaveSync/
-          chmod +x pkg/SaveSync/savesync.sh pkg/SaveSync/savesync.py
-          (cd pkg && zip -qr ../out/SaveSync-python.zip SaveSync)
-          for f in installers/*.sh; do
-            sed "s|__REPO__|$GITHUB_REPOSITORY|g" "$f" > "out/$(basename "$f")"
-          done
-          cp assets/icon.png out/icon.png
+          mkdir -p out
+          ls -la build/${{ matrix.target }} || true
+          case "${{ matrix.target }}" in
+            windows)
+              (cd build/windows && 7z a -tzip "../../out/SaveSync-windows-x64.zip" . >/dev/null) ;;
+            linux)
+              EXE=$(find build/linux -maxdepth 1 -type f -executable | head -1)
+              [[ "$(basename "$EXE")" == "SaveSync" ]] || mv "$EXE" build/linux/SaveSync
+              cp src/assets/icon.png build/linux/icon.png
+              tar -C build/linux -czf out/SaveSync-linux-x86_64.tar.gz . ;;
+            apk)
+              APK=$(find build/apk -name "*.apk" | head -1)
+              cp "$APK" out/SaveSync-android.apk ;;
+          esac
           ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
-          name: package
+          name: app-${{ matrix.target }}
           path: out/*
 
+  # -------------------------------------------------------------- línea de comandos
+  cli:
+    name: CLI ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: savesync-cli-windows-x64.exe
+          - os: ubuntu-22.04
+            asset: savesync-cli-linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Versión
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0"; fi
+          F=src/savesync_core.py
+          sed -i "s|^VERSION = .*|VERSION = \"$V\"|" $F
+          sed -i "s|^RELEASES_REPO = .*|RELEASES_REPO = \"$GITHUB_REPOSITORY\"  # ci|" $F
+          sed -i "s|^OAUTH_CLIENT_ID = .*|OAUTH_CLIENT_ID = \"${{ vars.OAUTH_CLIENT_ID }}\"  # ci|" $F
+      - name: Compilar
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip pyinstaller certifi
+          pyinstaller --onefile --noconfirm --clean --name savesync-cli --paths src \
+            --hidden-import savesync_detect --collect-data certifi src/savesync_cli.py
+          mkdir -p out
+          if [[ "$RUNNER_OS" == "Windows" ]]; then cp dist/savesync-cli.exe "out/${{ matrix.asset }}";
+          else cp dist/savesync-cli "out/${{ matrix.asset }}"; chmod +x "out/${{ matrix.asset }}"; fi
+          "./out/${{ matrix.asset }}" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.asset }}
+          path: out/*
+
+  # -------------------------------------------------------------- instaladores
+  installers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p out
+          for f in installers/*; do sed "s|__REPO__|$GITHUB_REPOSITORY|g" "$f" > "out/$(basename "$f")"; done
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers
+          path: out/*
+
+  # -------------------------------------------------------------- publicar
   release:
-    name: Publicar release
-    needs: [build, package]
+    needs: [app, cli, installers]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
@@ -104,20 +191,19 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
-
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
           body: |
-            ## Descargas
+            ## Instalar
 
-            | Plataforma | Archivo | Cómo instalar |
-            |---|---|---|
-            | **Windows** | `SaveSync-windows-x64.exe` | Descárgalo y ábrelo (necesitas [Git](https://git-scm.com/download/win) instalado). |
-            | **Steam Deck / Linux** | `SaveSync-linux-x86_64` | En Konsole: `curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install-linux.sh \| bash` |
-            | **Android (Termux)** | `SaveSync-python.zip` | En Termux: `curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install-termux.sh \| bash` |
-            | **Cualquiera con Python 3.8+** | `SaveSync-python.zip` | Descomprime y ejecuta `python savesync.py` |
+            | Plataforma | Cómo |
+            |---|---|
+            | **Windows** | En PowerShell: `irm https://github.com/${{ github.repository }}/releases/latest/download/install-windows.ps1 \| iex` — o descarga `SaveSync-windows-x64.zip`, descomprime y abre `SaveSync.exe`. |
+            | **Steam Deck / Linux** | En Konsole: `curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install-linux.sh \| bash` |
+            | **Android** | Descarga `SaveSync-android.apk` en el teléfono y ábrelo (permite instalar apps de origen desconocido). |
+
+            No hace falta instalar Git ni Python.

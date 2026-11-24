@@ -13,10 +13,9 @@ import json
 import os
 import re
 import time
-import urllib.request
 from pathlib import Path
 
-import savesync as core
+import savesync_core as core
 
 MANIFEST_URL = "https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/master/data/manifest.yaml"
 DB_FILE = "ludusavi-db.json"
@@ -267,9 +266,10 @@ def db_info(ss):
 
 def update_db(ss, progress=print):
     progress("Descargando base de datos de Ludusavi (~18 MB)...")
-    req = urllib.request.Request(MANIFEST_URL, headers={"User-Agent": "SaveSync/" + core.VERSION})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        text = r.read().decode("utf-8", errors="replace")
+    status, content, _ = core.http_request("GET", MANIFEST_URL, accept="*/*", timeout=180)
+    if status != 200:
+        raise core.SaveSyncError("No se pudo descargar la base de datos ({}).".format(status))
+    text = content.decode("utf-8", errors="replace")
     progress("Procesando...")
     db = parse_manifest(text.splitlines())
     core.save_json(db_path(ss), {"source": MANIFEST_URL, "count": len(db), "games": db})
@@ -495,20 +495,7 @@ def _candidate_from_matches(fs, name, steam_id, groups):
 
 
 def _store_path(ss, path):
-    """Convierte una ruta absoluta en una portable (~, %APPDATA%...)."""
-    p = str(path).replace("\\", "/")
-    subs = []
-    if ss.platform == "windows":
-        for var in ("LOCALAPPDATA", "APPDATA", "USERPROFILE"):
-            v = os.environ.get(var)
-            if v:
-                subs.append((v.replace("\\", "/"), "%{}%".format(var)))
-    else:
-        subs.append((str(Path.home()), "~"))
-    for real, rep in subs:
-        if p.lower().startswith(real.lower() + "/") or p.lower() == real.lower():
-            return rep + p[len(real):]
-    return p
+    return core.portable_path(path, ss.platform)
 
 
 def scan_emulators(ss, fs, libs):
@@ -590,7 +577,7 @@ def scan_pc_games(ss, fs, libs, progress=print):
     return found
 
 
-def scan(ss, progress=print, update=True):
+def scan(ss, progress=print, update=True, games=None):
     """Busca partidas en este dispositivo. Devuelve una lista de candidatos."""
     fs = FS()
     libs = core.steam_libraries(ss.platform) if ss.platform in ("windows", "linux", "steamdeck") else []
@@ -607,7 +594,7 @@ def scan(ss, progress=print, update=True):
         progress("Buscando juegos de PC...")
         results += scan_pc_games(ss, fs, libs, progress)
 
-    games = ss.load_games()
+    games = games if games is not None else ss.load_games()
     out, seen = [], set()
     for c in results:
         files = core.collect_files(c["path"], c["include"])
@@ -624,11 +611,8 @@ def scan(ss, progress=print, update=True):
         c["path_store"] = _store_path(ss, c["path"])
         c["path"] = str(c["path"])
         if c.get("type") == "collection":
-            c["items"] = [i["name"] for i in core.collection_items(c["path"], c, files)][:50]
+            c["items"] = [i["name"] for i in core.collection_items(files.keys(), c)][:50]
         existing = ss.find_existing(games, c)
-        if existing is None:
-            # mismo nombre que uno ya agregado
-            existing = next((g for g in games if g.get("name", "").lower() == c["name"].lower()), None)
         if existing is None:
             c["status"] = "new"
         else:

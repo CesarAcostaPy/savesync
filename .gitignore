@@ -3,6 +3,10 @@ __pycache__/
 build/
 dist/
 out/
-pkg/
 *.spec
 .venv/
+*.jks
+*.keystore
+
+# capturas y archivos temporales
+Claude outputs/

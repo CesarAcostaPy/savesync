@@ -7,34 +7,41 @@ REPO="${SAVESYNC_REPO:-__REPO__}"
 DIR="${SAVESYNC_DIR:-$HOME/savesync}"
 BASE="https://github.com/$REPO/releases/latest/download"
 
-echo "==> Instalando SaveSync en $DIR"
-if ! command -v git >/dev/null 2>&1; then
-  echo "AVISO: no se encontró git. SaveSync lo necesita (en SteamOS ya viene instalado)."
-fi
 if [ "$(uname -m)" != "x86_64" ]; then
-  echo "Este ejecutable es para x86_64. En tu equipo ($(uname -m)) usa SaveSync-python.zip con Python." >&2
+  echo "SaveSync para Linux está compilado para x86_64 (tu equipo: $(uname -m))." >&2
   exit 1
 fi
 
-mkdir -p "$DIR"
-curl -fL --progress-bar -o "$DIR/savesync.new" "$BASE/SaveSync-linux-x86_64"
-chmod +x "$DIR/savesync.new"
-mv -f "$DIR/savesync.new" "$DIR/savesync"
-curl -fsSL -o "$DIR/icon.png" "$BASE/icon.png" || true
+echo "==> Descargando SaveSync"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+curl -fL --progress-bar -o "$TMP/app.tar.gz" "$BASE/SaveSync-linux-x86_64.tar.gz"
+curl -fL --progress-bar -o "$TMP/savesync-cli" "$BASE/savesync-cli-linux-x86_64"
 
-# Acceso directo en el menú de aplicaciones (modo escritorio)
+echo "==> Instalando en $DIR"
+mkdir -p "$DIR"
+rm -rf "$DIR/app.new"
+mkdir -p "$DIR/app.new"
+tar -xzf "$TMP/app.tar.gz" -C "$DIR/app.new"
+rm -rf "$DIR/app"
+mv "$DIR/app.new" "$DIR/app"
+install -m 755 "$TMP/savesync-cli" "$DIR/savesync-cli"
+chmod +x "$DIR/app/SaveSync"
+
+# Acceso en el menú de aplicaciones (y en el escritorio)
 APPS="$HOME/.local/share/applications"
 mkdir -p "$APPS"
-cat > "$APPS/savesync.desktop" <<EOF
+cat > "$APPS/savesync.desktop" <<DESK
 [Desktop Entry]
 Type=Application
 Name=SaveSync
 Comment=Sincroniza tus partidas guardadas con GitHub
-Exec=$DIR/savesync gui
-Icon=$DIR/icon.png
-Terminal=true
+Exec=$DIR/app/SaveSync
+Icon=$DIR/app/icon.png
+Terminal=false
 Categories=Game;Utility;
-EOF
+StartupWMClass=SaveSync
+DESK
 chmod +x "$APPS/savesync.desktop"
 if [ -d "$HOME/Desktop" ]; then
   cp -f "$APPS/savesync.desktop" "$HOME/Desktop/savesync.desktop"
@@ -43,12 +50,11 @@ fi
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" >/dev/null 2>&1 || true
 
 echo
-echo "==> Listo. SaveSync $("$DIR/savesync" info 2>/dev/null | sed -n 's/^SaveSync //p')"
+echo "==> Listo: $("$DIR/savesync-cli" --version 2>/dev/null || echo SaveSync)"
 echo
-echo "  Abrir la interfaz : busca 'SaveSync' en el menú, o ejecuta  $DIR/savesync"
-echo "  Sincronizar       : $DIR/savesync sync"
-echo
+echo "  Abrir la app      : menú de aplicaciones > SaveSync"
+echo "  En modo juego     : en el menú, clic derecho en SaveSync > 'Agregar a Steam'"
 echo "  Sincronizar al jugar (Steam > juego > Propiedades > Opciones de lanzamiento):"
-echo "    $DIR/savesync run elden-ring -- %command%"
+echo "      $DIR/savesync-cli run elden-ring -- %command%"
 echo
 echo "  Para actualizar, vuelve a ejecutar este mismo comando."

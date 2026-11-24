@@ -1,0 +1,31 @@
+[project]
+name = "savesync"
+version = "2.0.0"
+description = "Sincroniza tus partidas guardadas con un repositorio privado de GitHub."
+requires-python = ">=3.10"
+dependencies = [
+    "flet==1.1.3",
+    "certifi",
+]
+
+[tool.flet]
+product = "SaveSync"
+artifact = "SaveSync"
+org = "io.github.cesaracostapy"
+bundle_id = "io.github.cesaracostapy.savesync"
+company = "SaveSync"
+copyright = "Copyright © 2026 Cesar Acosta"
+
+[tool.flet.app]
+path = "src"
+module = "main"
+exclude = ["__pycache__", "savesync_cli.py"]
+
+[tool.flet.android]
+dependencies = ["flet-permission-handler==1.1.3"]
+
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true
+"android.permission.READ_EXTERNAL_STORAGE" = true
+"android.permission.WRITE_EXTERNAL_STORAGE" = true
+"android.permission.MANAGE_EXTERNAL_STORAGE" = true

@@ -1,200 +1,133 @@
-# SaveSync — tus partidas guardadas en GitHub
+# SaveSync
 
-Herramienta de línea de comandos para respaldar y sincronizar partidas guardadas entre
-**Windows**, **Linux / Steam Deck** y **Android (Termux)** usando un repositorio privado de GitHub.
+Sincroniza tus partidas guardadas entre **Windows**, **Steam Deck / Linux** y **Android** usando un
+repositorio **privado** de tu cuenta de GitHub. Juega en la PC, sigue en la Deck o en el teléfono.
 
-- Un solo archivo (`savesync.py`), sin dependencias: solo **Python 3.8+** y **git**.
-- Sincronización inteligente: sabe si la versión nueva está en tu PC o en GitHub, y detecta **conflictos**
-  (jugaste en los dos dispositivos sin sincronizar) en vez de pisar una partida.
-- **Backup local automático** antes de sobrescribir cualquier partida (guarda los últimos 10).
-- **Historial completo** en git: puedes volver a cualquier versión anterior.
-- Comando `run` para que la Steam Deck sincronice sola al abrir y cerrar el juego.
-- **Interfaz gráfica** en el navegador: lista de juegos por plataforma o todos juntos, autodetección
-  de partidas y alta manual con explorador de carpetas.
+- App nativa en cada plataforma (Flet / Flutter). No necesita Git ni Python.
+- **Detecta tus partidas** automáticamente: más de 20.000 juegos de PC (base de datos de
+  [Ludusavi](https://github.com/mtkennerly/ludusavi-manifest) / PCGamingWiki), también dentro de Proton
+  en la Steam Deck, y emuladores: RetroArch, PCSX2, DuckStation, PPSSPP, Dolphin, Ryujinx, yuzu y derivados,
+  Citra/Azahar, Cemu, RPCS3 y EmuDeck.
+- Ve **todos tus juegos** con partida, juntos o **por plataforma**, y en qué dispositivo está cada uno.
+- Sincronización inteligente: sube o baja lo más nuevo y **avisa de conflictos** en vez de pisar una partida.
+- **Copias de seguridad** locales automáticas e **historial** completo en GitHub.
+- En la Steam Deck puede sincronizar **solo al abrir y cerrar cada juego**.
 
-## Interfaz gráfica
+## Instalar
 
-Ejecuta el programa **sin argumentos** (doble clic en `savesync.bat` en Windows) o con `gui`:
+Descargas en **[Releases](https://github.com/CesarAcostaPy/savesync/releases/latest)**.
 
-```bash
-python savesync.py gui        # Windows: savesync.bat   ·   Deck/Linux: ./savesync.sh
-```
+| Plataforma | Cómo |
+|---|---|
+| **Windows** | En PowerShell: `irm https://github.com/CesarAcostaPy/savesync/releases/latest/download/install-windows.ps1 \| iex` <br>Crea accesos en el menú Inicio y el escritorio. También puedes descargar `SaveSync-windows-x64.zip` y abrir `SaveSync.exe`. |
+| **Steam Deck / Linux** | En Konsole (modo escritorio): `curl -fsSL https://github.com/CesarAcostaPy/savesync/releases/latest/download/install-linux.sh \| bash` <br>Instala en `~/savesync` y agrega SaveSync al menú. |
+| **Android** | Descarga `SaveSync-android.apk` en el teléfono y ábrelo (acepta instalar apps de origen desconocido). |
 
-Se abre una página en tu navegador (solo accesible desde tu propio equipo). Mientras la uses,
-deja abierta la ventana de la terminal; ciérrala para salir.
+Para actualizar, vuelve a ejecutar el mismo comando o instala el APK nuevo. La app avisa cuando hay versión nueva.
 
-| Pestaña            | Qué hace                                                                                     |
-|--------------------|----------------------------------------------------------------------------------------------|
-| **Mis partidas**   | Todos tus juegos con partida, de todos tus dispositivos. Filtra por plataforma (Windows, Steam Deck, Linux, Android, *En GitHub*), por sistema (PC, GBA, PS2…) o busca por nombre. «Todos juntos» o «Por plataforma». Clic en un juego: detalle, sincronizar, subir/bajar, historial, cambiar carpeta, quitar. |
-| **Detectar**       | Busca partidas donde suelen guardarse y te deja agregarlas con un clic.                      |
-| **Agregar manual** | Para lo que no se detecta: nombre, sistema, carpeta (con explorador), patrones de archivos y vista previa. |
-| **Ajustes**        | Nombre del dispositivo y lista de tus dispositivos.                                          |
+> Windows SmartScreen puede advertir que la app "no es de un editor conocido" porque no está firmada:
+> *Más información → Ejecutar de todas formas*.
 
-Cada dispositivo guarda en el repo (`devices/<nombre>.json`) la lista de juegos con partida que tiene;
-así, desde la PC ves también lo que hay en la Steam Deck o en el teléfono.
+## Primer uso (en cada dispositivo)
 
-### Qué detecta automáticamente
+1. **Conecta tu cuenta de GitHub**
+   - Botón **Conectar con GitHub**: te muestra un código; ábrelo en github.com/login/device y autoriza.
+   - O pega un **token**: GitHub → Settings → Developer settings → Personal access tokens.
+     *Fine-grained*: solo tu repositorio de partidas con permiso *Contents: Read and write*.
+     *Classic* con permiso `repo` si quieres que SaveSync cree el repositorio por ti.
+2. **Elige el repositorio**: la primera vez pulsa **Crear privado** (`mis-partidas`). En los demás
+   dispositivos elige ese mismo. Ponle un nombre a cada dispositivo (pc, steamdeck, telefono…).
+3. **Detectar → Buscar partidas → Agregar seleccionados.** Lo que no se detecte, agrégalo en **Agregar**.
+4. **Sincronizar todo** antes de cambiar de dispositivo.
 
-- **Juegos de PC**: usa la base de datos de [Ludusavi](https://github.com/mtkennerly/ludusavi-manifest)
-  (más de 20.000 juegos, datos de PCGamingWiki). Se descarga la primera vez (~18 MB) y se actualiza cada 2 semanas.
-  En Steam Deck/Linux también busca dentro de los prefijos de **Proton**, y las bibliotecas de Steam en la tarjeta SD.
-- **Emuladores**: RetroArch, PCSX2, DuckStation, PPSSPP, Dolphin, Ryujinx, yuzu/Eden/Citron/Sudachi,
-  Citra/Azahar, Cemu, RPCS3 y todas las carpetas de **EmuDeck** (`~/Emulation/saves`).
-- En las carpetas de emuladores muestra **cada juego por separado** (ej. *Pokémon Emerald*, *Chrono Trigger*)
-  y, si RetroArch ordena las partidas por núcleo, también su consola (GBA, SNES…).
+## Steam Deck
 
-Desde la terminal: `savesync scan` (ver) o `savesync scan --add` (agregar todo).
+- **Modo escritorio**: abre SaveSync desde el menú.
+- **Modo juego**: en el menú de aplicaciones, clic derecho en SaveSync → *Agregar a Steam*.
+- **Sincronizar sola al jugar**: abre el juego en SaveSync, copia la línea de **Sincronizar al jugar (Steam)**
+  y pégala en Steam → juego → Propiedades → Opciones de lanzamiento. Es algo así:
+  ```
+  /home/deck/savesync/savesync-cli run elden-ring -- %command%
+  ```
+  Antes de abrir el juego baja tu última partida; al cerrarlo sube la nueva.
+- El juego debe haberse abierto **una vez** en la Deck para que Proton cree su carpeta de partidas.
+
+## Android
+
+- La primera vez, SaveSync pide **Acceso a todos los archivos** para leer las carpetas de tus emuladores.
+- Android 11+ **no permite** a ninguna app leer `Android/data/...`. Configura tus emuladores para guardar en
+  una carpeta normal, por ejemplo en RetroArch: *Ajustes → Directorio → Partidas guardadas* →
+  `/storage/emulated/0/RetroArch/saves`.
+- La detección de juegos de PC no aplica en Android; la de emuladores sí.
 
 ## Cómo funciona
 
 ```
- PC (Windows)                GitHub (repo privado)              Steam Deck
- %APPDATA%\EldenRing  ──push──▶  saves/elden-ring/  ◀──pull──  .../compatdata/1245620/.../EldenRing
-                                 games.json  (lista de juegos y rutas por plataforma)
+ PC (Windows)                  GitHub (repo privado)                   Steam Deck
+ %APPDATA%\EldenRing  ──sube──▶  saves/elden-ring/data/…  ◀──baja──  …/compatdata/1245620/…/EldenRing
+                                 saves/<juego>/manifest.json   (quién y cuándo)
+                                 games.json                    (juegos y carpetas por plataforma)
+                                 devices/<dispositivo>.json    (qué partidas tiene cada uno)
 ```
 
-En cada dispositivo se guarda una copia del repo y un registro de la última versión sincronizada.
-Con eso `sync` decide:
+Cada dispositivo recuerda qué versión sincronizó por última vez. Con eso decide:
 
-| Situación                                       | Qué hace                    |
-|-------------------------------------------------|-----------------------------|
-| Cambió solo tu partida local                    | La sube ↑                   |
-| Cambió solo la de GitHub (jugaste en otro lado) | La descarga ↓ (con backup)  |
-| Cambiaron las dos                               | Te pregunta cuál conservar  |
-
-## 1. Crear tu repositorio de partidas (privado)
-
-> No confundir con el repositorio de SaveSync (el código). Tus partidas van en **otro** repositorio, privado.
-
-1. En GitHub crea un repositorio **privado** y vacío, por ejemplo `mis-partidas` (sin README).
-2. Cada dispositivo necesita poder iniciar sesión en GitHub:
-   - **Windows**: Git for Windows abre el navegador para iniciar sesión la primera vez.
-   - **Steam Deck / Linux / Termux**: crea una clave SSH (`ssh-keygen -t ed25519`), agrega la pública en
-     GitHub → *Settings → SSH and GPG keys* y usa la dirección `git@github.com:TU_USUARIO/mis-partidas.git`.
-     Alternativa: un *fine-grained token* con permiso *Contents: Read and write* solo para ese repo.
-
-## 2. Instalar SaveSync
-
-Descarga desde la página de **[Releases](../../releases/latest)**:
-
-| Plataforma | Cómo |
+| Situación | Qué hace |
 |---|---|
-| **Windows** | Descarga `SaveSync-windows-x64.exe` y ábrelo. Necesitas [Git for Windows](https://git-scm.com/download/win). No hace falta Python. |
-| **Steam Deck / Linux** | En Konsole: `curl -fsSL https://github.com/TU_USUARIO/savesync/releases/latest/download/install-linux.sh \| bash` — instala en `~/savesync` y crea el acceso en el menú. |
-| **Android** | Instala **Termux desde F-Droid** y ejecuta: `curl -fsSL https://github.com/TU_USUARIO/savesync/releases/latest/download/install-termux.sh \| bash` — después escribe `savesync`. |
-| **Cualquier sistema con Python 3.8+** | Descarga `SaveSync-python.zip`, descomprime y ejecuta `python savesync.py`. |
+| Cambió solo aquí | La sube |
+| Cambió solo en GitHub (jugaste en otro lado) | La baja (antes guarda una copia de seguridad) |
+| Cambió en los dos | Te pregunta cuál conservar; la otra queda en el historial |
 
-Para actualizar: descarga el nuevo `.exe`, o vuelve a ejecutar el mismo comando de instalación.
-La interfaz avisa cuando hay una versión nueva.
+Datos locales de SaveSync: `%APPDATA%\savesync` (Windows), `~/.config/savesync` (Linux/Deck),
+almacenamiento interno de la app (Android). Ahí están la configuración, la sesión de GitHub,
+las copias de seguridad y la caché.
 
-> Windows SmartScreen puede advertir que el `.exe` "no es de un editor conocido" porque no está firmado:
-> pulsa *Más información → Ejecutar de todas formas*.
+### Elden Ring
 
-Después abre SaveSync, pega la dirección de tu repositorio de partidas y ponle nombre al dispositivo.
+- La partida está en una carpeta con tu **SteamID**: usa la misma cuenta de Steam en todos los dispositivos.
+- Steam Cloud también sincroniza este juego. Si Steam muestra un conflicto después de que SaveSync cambió la
+  partida, elige la versión **local**, o desactiva Steam Cloud para el juego si prefieres que mande SaveSync.
 
-### Sincronizar al jugar en Steam Deck
-Steam → juego → ⚙️ → Propiedades → Opciones de lanzamiento:
+## Línea de comandos
+
+`savesync-cli` (incluido en los instaladores de Windows y Linux):
+
+| Comando | Para qué |
+|---|---|
+| `login` · `repo` | Conectar cuenta · elegir/crear repositorio |
+| `list` · `status` | Juegos y estado |
+| `sync` · `push <id>` · `pull <id>` | Sincronizar · forzar subir · forzar bajar |
+| `run <id> -- <comando>` | Sincronizar, abrir el juego y sincronizar al cerrar |
+| `scan [--add]` · `add` · `set-path` · `remove` | Detectar · agregar · cambiar carpeta · quitar |
+| `history <id>` · `restore <id> <versión>` · `backups` | Versiones en GitHub · restaurar · copias locales |
+
+## Para quien mantiene SaveSync
+
 ```
-/home/deck/savesync/savesync run elden-ring -- %command%
-```
-Antes de abrir el juego baja tu última partida; al cerrarlo sube la nueva. Funciona en modo juego.
-
-### Android: carpetas de emuladores
-Desde Android 11, Termux no puede leer `Android/data/...`. Configura tus emuladores para guardar en una
-carpeta normal (ej. `/storage/emulated/0/RetroArch/saves`). Con la app **Termux:Widget** puedes poner
-SaveSync en la pantalla de inicio (el instalador ya crea los accesos).
-
-## 3. Uso diario
-
-| Comando                                   | Para qué                                                       |
-|-------------------------------------------|----------------------------------------------------------------|
-| `list`                                    | Juegos, carpeta en este dispositivo y estado                   |
-| `status`                                  | Resumen rápido                                                 |
-| `sync [juego...]`                         | Sincroniza todo (o solo los juegos indicados)                  |
-| `sync --dry-run`                          | Muestra qué haría sin tocar nada                               |
-| `sync --prefer local\|remote`             | Resuelve conflictos sin preguntar                              |
-| `push <juego>` / `pull <juego>`           | Fuerza subir / fuerza descargar                                |
-| `add <id> <carpeta> --name "Nombre"`      | Añade un juego nuevo                                           |
-| `set-path <id> <carpeta>`                 | Cambia la carpeta del juego solo en este dispositivo           |
-| `set-path <id> <carpeta> --shared`        | La guarda en el repo para todos los dispositivos de esa plataforma |
-| `history <id>`                            | Versiones subidas a GitHub                                     |
-| `restore <id> <commit>`                   | Recupera una versión antigua del historial                     |
-| `backups`                                 | Backups locales automáticos                                    |
-| `run <id> -- <comando>`                   | Sincroniza, abre el juego y sincroniza al cerrar               |
-| `info`                                    | Configuración actual                                           |
-| `gui`                                     | Abre la interfaz gráfica (también sin argumentos)              |
-| `scan [--add]`                            | Detecta partidas en este dispositivo                           |
-| `remove <id> [--delete-remote]`           | Quita un juego del catálogo                                    |
-
-### Añadir un juego
-```bash
-# En la PC (la ruta queda guardada para Windows en games.json)
-savesync add hollow-knight "%USERPROFILE%/AppData/LocalLow/Team Cherry/Hollow Knight" --name "Hollow Knight" --include "user*.dat"
-
-# En la Steam Deck, indica dónde está ahí (Proton usa el appid del juego)
-savesync set-path hollow-knight "~/.local/share/Steam/steamapps/compatdata/367520/pfx/drive_c/users/steamuser/AppData/LocalLow/Team Cherry/Hollow Knight" --shared
-```
-Las rutas aceptan `~`, `%VARIABLE%` y `$VARIABLE`. Con `--include` y `--exclude` filtras archivos
-(patrones tipo `*.sav`, `*/ER0000.*`). [PCGamingWiki](https://www.pcgamingwiki.com) indica dónde guarda cada juego.
-
-## Juegos incluidos de ejemplo
-
-| id                 | Windows                    | Steam Deck                                                  | Android                                   |
-|--------------------|----------------------------|-------------------------------------------------------------|-------------------------------------------|
-| `elden-ring`       | `%APPDATA%\EldenRing`      | `~/.local/share/Steam/steamapps/compatdata/1245620/pfx/.../EldenRing` | —                                  |
-| `retroarch-saves`  | `C:\RetroArch-Win64\saves` | `~/Emulation/saves/retroarch/saves` (EmuDeck)               | `/storage/emulated/0/RetroArch/saves`     |
-| `retroarch-states` | `C:\RetroArch-Win64\states`| `~/Emulation/saves/retroarch/states` (EmuDeck)              | `/storage/emulated/0/RetroArch/states`    |
-
-Las rutas de RetroArch dependen de cómo lo instalaste: compruébalas en
-*Ajustes → Directorio* y corrígelas con `set-path`.
-
-## Notas importantes sobre Elden Ring
-
-- La partida (`ER0000.sl2`) está dentro de una carpeta con tu **SteamID64**. Funciona entre PC y Deck
-  porque usas la **misma cuenta de Steam**; con otra cuenta el juego no la aceptará.
-- **Steam Cloud** también sincroniza esta partida. Si restauras una versión antigua, Steam puede mostrar
-  un aviso de conflicto: elige la versión *local*. Si prefieres que solo mande SaveSync, desactiva
-  Steam Cloud para Elden Ring (Propiedades → General).
-- Sincroniza **con el juego cerrado** (el comando `run` ya lo hace bien).
-- Usar SaveSync como respaldo no toca el juego ni los archivos de Easy Anti-Cheat; solo copia el archivo de guardado.
-
-## Dónde guarda sus datos SaveSync
-
-- Windows: `%APPDATA%\savesync\`  ·  Linux/Deck/Termux: `~/.config/savesync/`
-- `config.json` (URL, nombre del dispositivo, rutas propias), `state.json` (última versión sincronizada),
-  `repo/` (copia del repositorio), `backups/` (copias automáticas antes de sobrescribir)
-  y `ludusavi-db.json` (base de datos de rutas de juegos).
-- Cambia la ubicación con la variable de entorno `SAVESYNC_HOME`.
-
-## Archivos
-
-| Archivo              | Qué es                                   |
-|----------------------|------------------------------------------|
-| `savesync.py`        | Programa principal y línea de comandos   |
-| `savesync_detect.py` | Autodetección de partidas                |
-| `savesync_gui.py`    | Interfaz gráfica                         |
-| `savesync.bat` / `savesync.sh` | Lanzadores para usarlo con Python (Windows / Linux, Deck y Termux) |
-| `installers/`        | Instaladores para Steam Deck/Linux y Termux (se publican en cada release) |
-| `.github/workflows/release.yml` | Genera los ejecutables y publica la release |
-| `assets/`            | Icono de la aplicación                   |
-
-Copia siempre los tres `.py` juntos en la misma carpeta.
-
-## Publicar una versión nueva (para quien mantiene SaveSync)
-
-Los ejecutables los genera GitHub Actions (`.github/workflows/release.yml`):
-
-```bash
-git tag v1.2.0
-git push origin v1.2.0
+src/
+  main.py               entrada de la app (Flet)
+  savesync_app.py       interfaz
+  savesync_core.py      sincronización vía API de GitHub (sin git)
+  savesync_detect.py    autodetección (Ludusavi + emuladores)
+  savesync_cli.py       línea de comandos
+  assets/icon.png
+tests/mock_github.py    imitación de la API de GitHub para pruebas
+installers/             instaladores de Windows y Linux
+pyproject.toml          configuración de compilación de Flet
+.github/workflows/release.yml
 ```
 
-En unos minutos aparece la release con: `SaveSync-windows-x64.exe`, `SaveSync-linux-x86_64`,
-`SaveSync-python.zip`, `install-linux.sh`, `install-termux.sh` y `SHA256SUMS.txt`.
-El número de versión y el repositorio se toman del tag, no hace falta editar nada.
-Para probar los builds sin publicar: *Actions → Release → Run workflow*.
+**Publicar una versión**: `git tag v2.0.0 && git push origin v2.0.0`. GitHub Actions compila la app para
+Windows, Linux y Android, la línea de comandos para Windows y Linux, y publica la release.
 
-## Límites
+**Probar en tu PC**: `pip install "flet[all]==1.1.3"` y `flet run src/main.py`.
 
-- GitHub rechaza archivos de más de 100 MB; SaveSync avisa si alguno pasa de 95 MB.
-- Los repos crecen con cada versión. Para partidas pequeñas (casi todas) no es problema.
+**Opcional, una sola vez** (Settings → Secrets and variables → Actions):
+
+- **Botón «Conectar con GitHub»**: crea una OAuth App en GitHub → Settings → Developer settings → OAuth Apps
+  (Homepage y Callback: la URL de este repositorio) y marca **Enable Device Flow**. Copia su *Client ID*
+  en una **variable** llamada `OAUTH_CLIENT_ID`. Sin ella, la app ofrece solo el inicio de sesión con token.
+- **Firma estable del APK** (para actualizar sin desinstalar): crea un keystore
+  (`keytool -genkey -v -keystore savesync.jks -keyalg RSA -keysize 2048 -validity 10000 -alias savesync`) y
+  guarda como **secrets** `ANDROID_KEYSTORE_BASE64` (el archivo en base64), `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS` y `ANDROID_KEY_PASSWORD`. Nunca subas el `.jks` al repositorio.
