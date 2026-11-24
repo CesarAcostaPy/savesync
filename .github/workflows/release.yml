@@ -1,0 +1,123 @@
+# Genera los ejecutables y publica una release cuando subes un tag "vX.Y.Z".
+#   git tag v1.2.0 && git push origin v1.2.0
+# También se puede lanzar a mano (Actions -> Release -> Run workflow) para probar los builds sin publicar.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: SaveSync-windows-x64.exe
+          # Ubuntu 22.04 = glibc antigua -> el binario funciona en Steam Deck y en casi cualquier Linux
+          - os: ubuntu-22.04
+            asset: SaveSync-linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Poner versión y repositorio
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0-dev"; fi
+          sed -i "s|^VERSION = .*|VERSION = \"$V\"|" savesync.py
+          sed -i "s|^RELEASES_REPO = .*|RELEASES_REPO = \"$GITHUB_REPOSITORY\"|" savesync.py
+          grep -E "^(VERSION|RELEASES_REPO) =" savesync.py
+
+      - name: Instalar PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Compilar
+        shell: bash
+        run: |
+          ICON=()
+          if [[ "$RUNNER_OS" == "Windows" ]]; then ICON=(--icon assets/icon.ico); fi
+          pyinstaller --onefile --noconfirm --clean --name SaveSync "${ICON[@]}" \
+            --hidden-import savesync_detect --hidden-import savesync_gui savesync.py
+          mkdir -p out
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp dist/SaveSync.exe "out/${{ matrix.asset }}"
+          else
+            cp dist/SaveSync "out/${{ matrix.asset }}"
+            chmod +x "out/${{ matrix.asset }}"
+          fi
+
+      - name: Probar el ejecutable
+        shell: bash
+        run: |
+          "./out/${{ matrix.asset }}" --help
+          SAVESYNC_HOME="$RUNNER_TEMP/ss" "./out/${{ matrix.asset }}" info
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: out/*
+
+  package:
+    name: Paquete Python / Termux e instaladores
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Armar paquetes
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0-dev"; fi
+          sed -i "s|^VERSION = .*|VERSION = \"$V\"|" savesync.py
+          sed -i "s|^RELEASES_REPO = .*|RELEASES_REPO = \"$GITHUB_REPOSITORY\"|" savesync.py
+          mkdir -p out pkg/SaveSync
+          cp savesync.py savesync_detect.py savesync_gui.py savesync.bat savesync.sh README.md pkg/SaveSync/
+          chmod +x pkg/SaveSync/savesync.sh pkg/SaveSync/savesync.py
+          (cd pkg && zip -qr ../out/SaveSync-python.zip SaveSync)
+          for f in installers/*.sh; do
+            sed "s|__REPO__|$GITHUB_REPOSITORY|g" "$f" > "out/$(basename "$f")"
+          done
+          cp assets/icon.png out/icon.png
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: out/*
+
+  release:
+    name: Publicar release
+    needs: [build, package]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## Descargas
+
+            | Plataforma | Archivo | Cómo instalar |
+            |---|---|---|
+            | **Windows** | `SaveSync-windows-x64.exe` | Descárgalo y ábrelo (necesitas [Git](https://git-scm.com/download/win) instalado). |
+            | **Steam Deck / Linux** | `SaveSync-linux-x86_64` | En Konsole: `curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install-linux.sh \| bash` |
+            | **Android (Termux)** | `SaveSync-python.zip` | En Termux: `curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install-termux.sh \| bash` |
+            | **Cualquiera con Python 3.8+** | `SaveSync-python.zip` | Descomprime y ejecuta `python savesync.py` |
