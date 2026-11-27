@@ -8,6 +8,7 @@ import json
 import sys
 import threading
 import time
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -62,7 +63,71 @@ def commit_files(full, files, message):
     return c
 
 
+LATENCY = float(__import__("os").environ.get("MOCK_LATENCY", "0"))
+STATS = {"requests": 0, "connections": 0}
+
+
+def git_sha(kind, data):
+    return sha1("{} {}\0".format(kind, len(data)).encode() + data)
+
+
+def parse_pack(data):
+    assert data[:4] == b"PACK", "no es un paquete"
+    n = int.from_bytes(data[8:12], "big")
+    assert hashlib.sha1(data[:-20]).digest() == data[-20:], "checksum del paquete"
+    i, objs = 12, []
+    for _ in range(n):
+        c = data[i]; i += 1
+        kind = (c >> 4) & 7
+        size, shift = c & 15, 4
+        while c & 0x80:
+            c = data[i]; i += 1
+            size |= (c & 0x7F) << shift
+            shift += 7
+        d = zlib.decompressobj()
+        raw = d.decompress(data[i:])
+        i = len(data) - len(d.unused_data)
+        assert len(raw) == size, "tamaño de objeto"
+        objs.append(({1: "commit", 2: "tree", 3: "blob"}[kind], raw))
+    return objs
+
+
+def parse_tree(data):
+    out, i = [], 0
+    while i < len(data):
+        sp = data.index(b" ", i)
+        nul = data.index(b"\0", sp)
+        mode, name = data[i:sp].decode(), data[sp + 1:nul].decode()
+        out.append((mode, name, data[nul + 1:nul + 21].hex()))
+        i = nul + 21
+    names = [n + ("/" if m == "40000" else "") for m, n, _ in out]
+    assert names == sorted(names, key=lambda x: x.encode()), "treeNotSorted"
+    return out
+
+
+def flatten(trees, sha, prefix=""):
+    flat = {}
+    for mode, name, s in trees[sha]:
+        if mode == "40000":
+            flat.update(flatten(trees, s, prefix + name + "/"))
+        else:
+            if s not in BLOBS:
+                raise KeyError("falta el blob " + s)
+            flat[prefix + name] = s
+    return flat
+
+
+def pkt(b):
+    return "{:04x}".format(len(b) + 4).encode() + b
+
+
 class H(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # keep-alive, como GitHub
+
+    def setup(self):
+        super().setup()
+        STATS["connections"] += 1
+
     def log_message(self, *a):
         pass
 
@@ -87,7 +152,12 @@ class H(BaseHTTPRequestHandler):
         return TOKENS.get(a.split(" ", 1)[1]) if " " in a else None
 
     def handle_any(self, method):
+        STATS["requests"] += 1
+        if LATENCY:
+            time.sleep(LATENCY)
         u = urlparse(self.path)
+        if u.path == "/_admin/stats":
+            return self.send(200, STATS)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         parts = [p for p in u.path.split("/") if p]
         with LOCK:
@@ -104,6 +174,8 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/_admin/race":
                 RACE["pending"] = True
                 return self.send(200, {})
+            if ".git/" in u.path:
+                return self.git_endpoint(u, parts)
             user = self.auth()
             if not user:
                 return self.send(401, {"message": "Bad credentials"})
@@ -212,6 +284,66 @@ class H(BaseHTTPRequestHandler):
                 if rest[:2] == ["releases", "latest"]:
                     return self.send(404, {"message": "Not Found"})
             return self.send(404, {"message": "Not Found: " + u.path})
+
+    def git_endpoint(self, u, parts):
+        a = self.headers.get("Authorization", "")
+        try:
+            user_pass = base64.b64decode(a.split(" ", 1)[1]).decode() if a.startswith("Basic ") else ""
+        except Exception:
+            user_pass = ""
+        if user_pass.split(":", 1)[-1] not in TOKENS:
+            self.send_response(401); self.send_header("Content-Length", "0"); self.end_headers(); return
+        full = parts[0] + "/" + parts[1][:-4]
+        repo = REPOS.get(full)
+        if not repo or repo.get("noaccess"):
+            return self.send(404, {"message": "Not Found"})
+        if u.path.endswith("/info/refs"):
+            head = repo["refs"].get(repo["branch"])
+            caps = b"report-status delete-refs side-band-64k quiet atomic ofs-delta agent=mock"
+            body = pkt(b"# service=git-receive-pack\n") + b"0000"
+            if head:
+                body += pkt(head.encode() + b" refs/heads/" + repo["branch"].encode() + b"\0" + caps + b"\n")
+            else:
+                body += pkt(b"0" * 40 + b" capabilities^{}\0" + caps + b"\n")
+            body += b"0000"
+            return self.send(200, raw=body)
+        if u.path.endswith("/git-receive-pack"):
+            n = int(self.headers.get("Content-Length") or 0)
+            data = self.rfile.read(n)
+            ln = int(data[:4], 16)
+            cmd = data[4:ln].split(b"\0")[0].decode().split()
+            old, new, ref = cmd
+            pack = data[ln + 4:]
+            STATS["pushes"] = STATS.get("pushes", 0) + 1
+            STATS["push_bytes"] = STATS.get("push_bytes", 0) + len(pack)
+            if RACE["pending"]:
+                RACE["pending"] = False
+                commit_files(full, {"devices/otro.json": b'{"device":"otro","platform":"linux","games":{}}'},
+                             "otro dispositivo")
+            trees, commits = {}, {}
+            for kind, raw in parse_pack(pack):
+                sha = git_sha(kind, raw)
+                if kind == "blob":
+                    BLOBS[sha] = raw
+                elif kind == "tree":
+                    trees[sha] = parse_tree(raw)
+                else:
+                    commits[sha] = raw.decode()
+            head = repo["refs"].get(repo["branch"])
+            if (head or "0" * 40) != old:
+                body = pkt(b"unpack ok\n") + pkt(("ng " + ref + " fetch first\n").encode()) + b"0000"
+                return self.send(200, raw=body)
+            text = commits[new]
+            tree = text.split("\n")[0].split()[1]
+            parents = [ln.split()[1] for ln in text.split("\n") if ln.startswith("parent ")]
+            msg = text.split("\n\n", 1)[1].strip()
+            flat = flatten(trees, tree)
+            repo["trees"][tree] = flat
+            repo["commits"][new] = {"tree": tree, "parents": parents, "message": msg,
+                                    "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            repo["refs"][repo["branch"]] = new
+            return self.send(200, raw=pkt(b"unpack ok\n") + pkt(("ok " + ref + "\n").encode()) + b"0000")
+        return self.send(404, {"message": "Not Found"})
 
     def do_GET(self):
         self.handle_any("GET")

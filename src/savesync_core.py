@@ -760,6 +760,10 @@ class SaveSync:
         try:
             store.snapshot(refresh=True)
         except GitHubError as e:
+            if "permiso para escribir" in str(e):
+                raise SaveSyncError(
+                    "El token puede ver {} pero no escribir en él. En GitHub, edita el token y pon "
+                    "«Contents» en «Read and write».".format(full_name))
             if e.status in (403, 404):
                 raise SaveSyncError(
                     "No se puede acceder a {} con este token. Si es un token «fine-grained», edítalo en GitHub "

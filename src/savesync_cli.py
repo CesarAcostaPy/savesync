@@ -297,6 +297,15 @@ def main(argv=None):
         parser.print_help()
         return 0
     ss = core.SaveSync(log=info)
+    if sys.stdout.isatty():
+        def progress(msg):
+            sys.stdout.write("\r   " + msg[:70].ljust(70))
+            sys.stdout.flush()
+            if msg.split() and "/" in msg.split()[-1]:
+                a, _, b = msg.split()[-1].partition("/")
+                if a == b:
+                    sys.stdout.write("\r" + " " * 74 + "\r")
+        ss.on_progress = progress
     try:
         rc = HANDLERS[args.cmd](ss, args)
         return rc if isinstance(rc, int) else 0

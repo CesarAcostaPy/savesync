@@ -161,6 +161,24 @@ class App:
     def narrow(self):
         return (self.page.width or 1000) < 760
 
+    def w(self, maxw, margin=40):
+        """Ancho adaptable: maxw en pantallas grandes, el ancho disponible en el teléfono."""
+        avail = (self.page.width or (maxw + margin)) - margin
+        return max(240, min(maxw, avail))
+
+    def dw(self, maxw):
+        """Ancho del contenido de un diálogo."""
+        return self.w(maxw, 64 if self.narrow else 140)
+
+    @staticmethod
+    def check_row(cb, text):
+        """Casilla con texto que salta de línea (Checkbox.label no se ajusta en pantallas chicas)."""
+        def toggle(e):
+            cb.value = not cb.value
+            cb.update()
+        return ft.Row([cb, ft.Container(ft.Text(text), expand=True, on_click=toggle)],
+                      spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
     def log(self, msg):
         self.logs.append("{}  {}".format(time.strftime("%H:%M:%S"), msg))
         self.logs = self.logs[-400:]
@@ -178,7 +196,7 @@ class App:
         self.dialog("Algo salió mal", ft.Container(ft.Column([
             ft.Row([ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FF8A80", size=28),
                     ft.Text(str(msg), selectable=True, color="#FFFFFF", size=15, expand=True)],
-                   vertical_alignment=ft.CrossAxisAlignment.START, spacing=12)], tight=True), width=520),
+                   vertical_alignment=ft.CrossAxisAlignment.START, spacing=12)], tight=True), width=self.dw(520)),
             [ft.TextButton("Copiar", icon=ft.Icons.COPY, on_click=lambda e: self.page.run_task(self.copy, str(msg))),
              ft.FilledButton("Cerrar", on_click=self.close_dialog)])
 
@@ -189,8 +207,14 @@ class App:
             pass
 
     def dialog(self, title, content, actions, scrollable=True):
-        dlg = ft.AlertDialog(title=ft.Text(title), content=content, actions=actions, scrollable=scrollable,
-                             actions_alignment=ft.MainAxisAlignment.END)
+        kw = {}
+        if self.narrow:
+            kw = dict(inset_padding=ft.Padding.symmetric(horizontal=12, vertical=24),
+                      content_padding=ft.Padding.only(left=16, right=16, top=12, bottom=8),
+                      actions_padding=ft.Padding.only(left=8, right=8, bottom=8))
+        dlg = ft.AlertDialog(title=ft.Text(title, size=18 if self.narrow else None), content=content,
+                             actions=actions, scrollable=scrollable,
+                             actions_alignment=ft.MainAxisAlignment.END, **kw)
         self.page.show_dialog(dlg)
         return dlg
 
@@ -257,7 +281,7 @@ class App:
         p.controls.clear()
         main_ui = self.ss.configured
         header = ft.Container(
-            padding=ft.Padding.symmetric(horizontal=20, vertical=10), bgcolor="#121521",
+            padding=ft.Padding.symmetric(horizontal=12 if self.narrow else 20, vertical=10), bgcolor="#121521",
             content=ft.Row([
                 ft.Container(ft.Icon(ft.Icons.SWAP_VERT, color="white", size=20), width=34, height=34,
                              border_radius=10, alignment=ft.Alignment.CENTER,
@@ -272,8 +296,10 @@ class App:
                 if self.update_info else ft.Container(),
                 ft.IconButton(ft.Icons.REFRESH, tooltip="Actualizar", on_click=lambda e: self.refresh(True),
                               visible=main_ui),
-                ft.FilledButton("Sincronizar todo" if not self.narrow else "Sincronizar", icon=ft.Icons.SYNC,
-                                on_click=lambda e: self.sync([]), visible=main_ui),
+                ft.FilledButton("Sincronizar todo", icon=ft.Icons.SYNC,
+                                on_click=lambda e: self.sync([]), visible=main_ui and not self.narrow),
+                ft.IconButton(ft.Icons.SYNC, tooltip="Sincronizar todo", on_click=lambda e: self.sync([]),
+                              visible=main_ui and self.narrow, bgcolor="#2A2F45"),
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=12))
         if main_ui and not self.narrow:
             rail = ft.NavigationRail(
@@ -290,7 +316,9 @@ class App:
                 selected_index=self.tab, on_change=self.on_nav, bgcolor="#0F121A",
                 destinations=[ft.NavigationBarDestination(icon=i, selected_icon=si, label=l)
                               for l, i, si in self.DESTS]) if main_ui else None
-        p.add(ft.Column([header, self.progress, body], expand=True, spacing=0))
+        self.content.padding = (ft.Padding.only(left=12, right=12, top=10, bottom=10) if self.narrow
+                                else ft.Padding.only(left=20, right=20, top=12, bottom=12))
+        p.add(ft.SafeArea(ft.Column([header, self.progress, body], expand=True, spacing=0), expand=True))
         self.render()
 
     def route(self):
@@ -404,7 +432,8 @@ class App:
                   ft.Row([ft.Button("Conectar con token", icon=ft.Icons.KEY, on_click=lambda e: login_token()),
                           ft.TextButton("Crear token", icon=ft.Icons.OPEN_IN_NEW, on_click=lambda e: self.page.run_task(
                               self.open_url, core.WEB_URL + "/settings/personal-access-tokens/new"))], wrap=True)]
-        return ft.Column([ft.Row([ft.Container(self.card(parts, 28), width=620)], alignment=ft.MainAxisAlignment.CENTER)],
+        return ft.Column([ft.Row([ft.Container(self.card(parts, 18 if self.narrow else 28), width=self.w(620, 24))],
+                                 alignment=ft.MainAxisAlignment.CENTER)],
                          scroll=ft.ScrollMode.AUTO, expand=True)
 
     def repo_view(self):
@@ -447,7 +476,8 @@ class App:
             ft.Row([new_name, ft.FilledButton("Crear privado", icon=ft.Icons.ADD, on_click=create)]),
             ft.Text("O elige uno existente", weight=ft.FontWeight.BOLD), repo_list,
             ft.TextButton("Cerrar sesión", icon=ft.Icons.LOGOUT,
-                          on_click=lambda e: (self.ss.logout(), self.render()))], 24), width=680)],
+                          on_click=lambda e: (self.ss.logout(), self.render()))], 18 if self.narrow else 24),
+            width=self.w(680, 24))],
             alignment=ft.MainAxisAlignment.CENTER)], scroll=ft.ScrollMode.AUTO, expand=True)
 
     # --- Mis partidas ---------------------------------------------------------
@@ -605,11 +635,11 @@ class App:
         g = self.view["games"][gid]
         label, icon, color = STATUS_SHORT.get(g["status"], (g["status"], ft.Icons.HELP, "#888"))
         path_field = ft.TextField(label="Carpeta en este dispositivo", value=g.get("local_path") or "", expand=True)
-        shared = ft.Checkbox(label="Usar esta carpeta en todos mis dispositivos {}".format(plab(self.ss.platform)),
-                             value=not g.get("override"))
+        shared = ft.Checkbox(value=not g.get("override"))
 
         def kv(k, v):
-            return ft.Row([ft.Text(k, color="#8B93A7", width=130), ft.Text(v, selectable=True, expand=True)],
+            return ft.Row([ft.Text(k, color="#8B93A7", width=96 if self.narrow else 130),
+                           ft.Text(v, selectable=True, expand=True)],
                           vertical_alignment=ft.CrossAxisAlignment.START)
         items = [r["name"] for r in self.view["rows"] if r.get("item") and gid in r["game_ids"]]
         ctrls = [
@@ -625,7 +655,8 @@ class App:
         ctrls.append(ft.Text("Carpetas por plataforma", weight=ft.FontWeight.BOLD))
         for p, val in (g.get("paths") or {}).items():
             ctrls.append(ft.Row([ft.Icon(ft.Icons.CIRCLE, size=10, color=PCOL.get(p, "#666")),
-                                 ft.Text(plab(p), width=100), ft.Text(val, size=12, selectable=True, expand=True,
+                                 ft.Text(plab(p), width=84 if self.narrow else 100),
+                                 ft.Text(val, size=12, selectable=True, expand=True,
                                                                       font_family="monospace")]))
         ctrls.append(ft.Text("Dispositivos con partida", weight=ft.FontWeight.BOLD))
         for w in g["where"] or []:
@@ -644,7 +675,7 @@ class App:
         ctrls += [ft.Text("Cambiar carpeta", weight=ft.FontWeight.BOLD),
                   ft.Row([path_field, ft.IconButton(ft.Icons.FOLDER_OPEN, tooltip="Explorar",
                                                     on_click=lambda e: self.browse(path_field, reopen=holder["dlg"]))]),
-                  shared,
+                  self.check_row(shared, "Usar esta carpeta en todos mis dispositivos {}".format(plab(self.ss.platform))),
                   ft.Button("Guardar carpeta", icon=ft.Icons.SAVE, on_click=lambda e: save_path())]
         if self.ss.platform in ("steamdeck", "linux", "windows"):
             if self.ss.platform == "windows":
@@ -668,15 +699,31 @@ class App:
             self.close_dialog()
             self.run_bg("Guardando carpeta…", lambda: self.ss.set_path(gid, path, shared.value),
                         lambda _: (self.toast("Carpeta guardada"), self.refresh(False)))
-        holder["dlg"] = self.dialog(g["name"], ft.Container(ft.Column(ctrls, spacing=10, tight=True), width=640), [
-            ft.TextButton("Quitar", icon=ft.Icons.DELETE_OUTLINE, on_click=lambda e: self.confirm_remove(gid)),
-            ft.TextButton("Historial", icon=ft.Icons.HISTORY, on_click=lambda e: self.history(gid)),
-            ft.TextButton("Bajar de GitHub", icon=ft.Icons.DOWNLOAD, disabled=not g["github"] or not g.get("local_path"),
-                          on_click=lambda e: self.sync([gid], "pull")),
-            ft.TextButton("Subir esta", icon=ft.Icons.UPLOAD, disabled=g["status"] in ("sin-ruta", "vacio", "solo-remoto"),
-                          on_click=lambda e: self.sync([gid], "push")),
-            ft.FilledButton("Sincronizar", icon=ft.Icons.SYNC, on_click=lambda e: self.sync([gid])),
-        ])
+        can_pull = bool(g["github"]) and bool(g.get("local_path"))
+        can_push = g["status"] not in ("sin-ruta", "vacio", "solo-remoto")
+        if self.narrow:
+            more = ft.PopupMenuButton(icon=ft.Icons.MORE_VERT, tooltip="Más acciones", items=[
+                ft.PopupMenuItem(content="Bajar de GitHub", icon=ft.Icons.DOWNLOAD, disabled=not can_pull,
+                                 on_click=lambda e: self.sync([gid], "pull")),
+                ft.PopupMenuItem(content="Subir esta", icon=ft.Icons.UPLOAD, disabled=not can_push,
+                                 on_click=lambda e: self.sync([gid], "push")),
+                ft.PopupMenuItem(content="Historial", icon=ft.Icons.HISTORY, on_click=lambda e: self.history(gid)),
+                ft.PopupMenuItem(content="Quitar", icon=ft.Icons.DELETE_OUTLINE,
+                                 on_click=lambda e: self.confirm_remove(gid))])
+            actions = [ft.TextButton("Cerrar", on_click=self.close_dialog), more,
+                       ft.FilledButton("Sincronizar", icon=ft.Icons.SYNC, on_click=lambda e: self.sync([gid]))]
+        else:
+            actions = [
+                ft.TextButton("Quitar", icon=ft.Icons.DELETE_OUTLINE, on_click=lambda e: self.confirm_remove(gid)),
+                ft.TextButton("Historial", icon=ft.Icons.HISTORY, on_click=lambda e: self.history(gid)),
+                ft.TextButton("Bajar de GitHub", icon=ft.Icons.DOWNLOAD, disabled=not can_pull,
+                              on_click=lambda e: self.sync([gid], "pull")),
+                ft.TextButton("Subir esta", icon=ft.Icons.UPLOAD, disabled=not can_push,
+                              on_click=lambda e: self.sync([gid], "push")),
+                ft.FilledButton("Sincronizar", icon=ft.Icons.SYNC, on_click=lambda e: self.sync([gid])),
+            ]
+        holder["dlg"] = self.dialog(g["name"], ft.Container(ft.Column(ctrls, spacing=10, tight=True),
+                                                            width=self.dw(640)), actions)
 
     def confirm_remove(self, gid):
         g = self.view["games"][gid]
@@ -713,7 +760,7 @@ class App:
                     "Restaurar", on_click=lambda e, b=b: (self.close_dialog(), self.run_bg(
                         "Restaurando…", lambda: self.ss.restore_backup(gid, b),
                         lambda _: (self.toast("Copia restaurada"), self.refresh(False)))))) for b in bks]
-            self.dialog("Historial · " + g["name"], ft.Container(ft.Column(rows, tight=True, spacing=0), width=600),
+            self.dialog("Historial · " + g["name"], ft.Container(ft.Column(rows, tight=True, spacing=0), width=self.dw(600)),
                         [ft.TextButton("Cerrar", on_click=self.close_dialog)])
         self.run_bg("Leyendo historial…", lambda: self.ss.history(gid), show)
 
@@ -785,7 +832,8 @@ class App:
         start = start or core.expand_path(target_field.value or "") or Path.home()
         fallback = Path(det.SD) if self.ss.platform == "android" else Path.home()
         cur = {"path": Path(start) if Path(start).is_dir() else fallback}
-        listing = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, height=360)
+        listing = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO,
+                            height=min(360, max(200, (self.page.height or 700) - 360)))
         path_text = ft.Text(size=12, font_family="monospace", selectable=True)
 
         def fill():
@@ -828,7 +876,7 @@ class App:
                         wrap=True, spacing=6, run_spacing=6)
         if reopen is not None:
             self.close_dialog()
-        self.dialog("Elegir carpeta", ft.Container(ft.Column([sc_row, path_text, listing], tight=True), width=620),
+        self.dialog("Elegir carpeta", ft.Container(ft.Column([sc_row, path_text, listing], tight=True), width=self.dw(620)),
                     [ft.TextButton("Cancelar", on_click=lambda e: finish(None)),
                      ft.FilledButton("Usar esta carpeta", icon=ft.Icons.CHECK,
                                      on_click=lambda e: finish(str(cur["path"])))], scrollable=False)
@@ -881,15 +929,19 @@ class App:
                                     visible=bool(c.get("items"))),
                         ], spacing=2, expand=True, tight=True),
                         ft.Column([ft.Text("{} archivos".format(c["files"]), size=12),
-                                   ft.Text(core.human_bytes(c["bytes"]), size=11, color="#8B93A7")],
+                                   ft.Text(core.human_bytes(c["bytes"]), size=11, color="#8B93A7"),
+                                   ft.Text(t, size=12, color=col, visible=self.narrow)],
                                   horizontal_alignment=ft.CrossAxisAlignment.END, tight=True, spacing=2),
-                        ft.Container(ft.Text(t, size=12, color=col), width=110),
+                        ft.Container(ft.Text(t, size=12, color=col), width=110, visible=not self.narrow),
                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         padding=ft.Padding.symmetric(horizontal=8, vertical=8),
                         border=ft.Border.only(bottom=ft.BorderSide(1, "#232838"))))
                 ctrls.append(self.card([
-                    ft.Row([ft.Text("{} encontrados".format(len(res)), weight=ft.FontWeight.BOLD),
-                            ft.Container(expand=True), sync_after,
+                    (ft.Column([ft.Text("{} encontrados".format(len(res)), weight=ft.FontWeight.BOLD), sync_after],
+                               tight=True) if self.narrow else
+                     ft.Row([ft.Text("{} encontrados".format(len(res)), weight=ft.FontWeight.BOLD),
+                             ft.Container(expand=True), sync_after])),
+                    ft.Row([ft.Container(expand=True),
                             ft.FilledButton("Agregar seleccionados ({})".format(len(self.scan_sel)), icon=ft.Icons.ADD,
                                             disabled=not self.scan_sel,
                                             on_click=lambda e: self.add_detected(sync_after.value))]),
@@ -938,14 +990,14 @@ class App:
                              options=[ft.DropdownOption(key=s, text=s) for s in SYSTEMS])
         kind = ft.SegmentedButton(selected=[f.get("type", "game")], segments=[
             ft.Segment(value="game", label=ft.Text("Un juego")),
-            ft.Segment(value="collection", label=ft.Text("Carpeta de emulador (varios juegos)"))])
+            ft.Segment(value="collection", label=ft.Text("Emulador (varios)" if self.narrow
+                                                         else "Carpeta de emulador (varios juegos)"))])
         path = ft.TextField(label="Carpeta de partidas", value=f.get("path", ""), expand=True,
                             hint_text="Ej: %APPDATA%\\MiJuego  ·  ~/.local/share/MiJuego")
         include = ft.TextField(label="Incluir archivos (separados por coma)", value=f.get("include", "*"))
         exclude = ft.TextField(label="Excluir (opcional)", value=f.get("exclude", ""), hint_text="Ej: *.log, cache/*")
-        shared = ft.Checkbox(label="Usar esta carpeta en todos mis dispositivos {}".format(plab(self.ss.platform)),
-                             value=f.get("shared", True))
-        sync_after = ft.Checkbox(label="Subir la partida a GitHub al agregar", value=f.get("sync", True))
+        shared = ft.Checkbox(value=f.get("shared", True))
+        sync_after = ft.Checkbox(value=f.get("sync", True))
         preview = ft.Column(tight=True)
 
         def split(s):
@@ -1005,7 +1057,9 @@ class App:
                     "indicar su carpeta desde «Partidas».", color="#AAB1C3"),
             name, system, kind,
             ft.Row([path, ft.IconButton(ft.Icons.FOLDER_OPEN, tooltip="Explorar", on_click=lambda e: self.browse(path))]),
-            include, exclude, shared, sync_after,
+            include, exclude,
+            self.check_row(shared, "Usar esta carpeta en todos mis dispositivos {}".format(plab(self.ss.platform))),
+            self.check_row(sync_after, "Subir la partida a GitHub al agregar"),
             ft.Row([ft.OutlinedButton("Vista previa", icon=ft.Icons.VISIBILITY, on_click=do_preview),
                     ft.FilledButton("Agregar juego", icon=ft.Icons.ADD, on_click=do_add)]),
             preview], 22)], scroll=ft.ScrollMode.AUTO, expand=True,
